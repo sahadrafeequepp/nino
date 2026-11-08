@@ -1,0 +1,2 @@
+# Directory marker for data storage (runtime SQLite db & temporary media are gitignored)
+

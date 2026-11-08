@@ -1,0 +1,50 @@
+# Nino LoRA Fine-Tuning Configuration
+model:
+  base_model: "google/gemma-2-2b-it"
+  model_type: "causal_lm"
+  use_4bit: true
+  bnb_4bit_compute_dtype: "bfloat16"
+  bnb_4bit_quant_type: "nf4"
+  use_nested_quant: false
+
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+training:
+  output_dir: "training/output/nino-lora"
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0002
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  max_seq_length: 1024
+  logging_steps: 10
+  save_strategy: "steps"
+  save_steps: 50
+  save_total_limit: 2
+  eval_strategy: "steps"
+  eval_steps: 50
+  fp16: false
+  bf16: true
+  optim: "adamw_bnb_8bit"
+  seed: 42
+
+data:
+  train_file: "training/data/train.jsonl"
+  val_file: "training/data/val.jsonl"
+  val_split_ratio: 0.1
+  synthetic_count: 50
