@@ -343,3 +343,82 @@ def test_handle_sticker_with_caption(monkeypatch):
     assert mock_msg.reply_text.called
     assert mock_msg.reply_text.call_args[0][0] == "That is hilarious!"
 
+
+def test_handle_sticker_saves_reply_to_saved_data(monkeypatch):
+    """Verify handle_sticker archives the outgoing sticker media and logs to interactions and replies."""
+    user_id = 777888
+    monkeypatch.setattr(bot, "AUTHORIZED_USER_ID", user_id)
+    mock_collector = MagicMock()
+    mock_collector.save_media = MagicMock(side_effect=lambda uid, data, fname: f"bot_saved_data/media/{uid}/mock_{fname}")
+    monkeypatch.setattr(bot, "data_collector", mock_collector)
+    monkeypatch.setattr(bot, "security_scanner", MagicMock())
+    monkeypatch.setattr(bot, "media_processor", MagicMock())
+
+    img = Image.new("RGB", (32, 32), color="green")
+    buf = io.BytesIO()
+    img.save(buf, format="WEBP")
+    fake_webp_bytes = buf.getvalue()
+
+    mock_scan_res = MagicMock()
+    mock_scan_res.is_safe = True
+    bot.security_scanner.scan_file_bytes = MagicMock(return_value=InstantAwaitable(mock_scan_res))
+    bot.media_processor.extract_image = MagicMock(return_value=InstantAwaitable("A playful cat"))
+
+    mock_update = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = user_id
+    mock_user.username = "tester"
+    mock_update.effective_user = mock_user
+
+    mock_msg = MagicMock()
+    mock_msg.caption = None
+    mock_msg.reply_sticker = MagicMock(return_value=InstantAwaitable())
+    mock_msg.reply_text = MagicMock(return_value=InstantAwaitable())
+
+    incoming_sticker = DummySticker(file_id="in_cat_1", file_unique_id="in_uid_cat", emoji="🐱", set_name="CatPack")
+    mock_in_file = MagicMock()
+    async def fake_in_dl(ba):
+        ba.extend(fake_webp_bytes)
+    mock_in_file.download_as_bytearray = fake_in_dl
+    incoming_sticker.get_file = MagicMock(return_value=InstantAwaitable(mock_in_file))
+    mock_msg.sticker = incoming_sticker
+    mock_update.message = mock_msg
+
+    mock_context = MagicMock()
+    mock_context.bot.send_chat_action = MagicMock(return_value=InstantAwaitable())
+
+    matched_sticker = DummySticker(file_id="rep_cat_2", file_unique_id="rep_uid_cat2", emoji="😻", set_name="CatPack")
+    mock_rep_file = MagicMock()
+    async def fake_rep_dl(ba):
+        ba.extend(fake_webp_bytes)
+    mock_rep_file.download_as_bytearray = fake_rep_dl
+    matched_sticker.get_file = MagicMock(return_value=InstantAwaitable(mock_rep_file))
+
+    mock_set = MagicMock()
+    mock_set.stickers = [incoming_sticker, matched_sticker]
+    mock_context.bot.get_sticker_set = MagicMock(return_value=InstantAwaitable(mock_set))
+
+    sync_run(bot.handle_sticker(mock_update, mock_context))
+
+    # 1. reply_sticker must have been called with matched sticker
+    assert mock_msg.reply_sticker.called
+    assert mock_msg.reply_sticker.call_args.kwargs.get("sticker") == "rep_cat_2"
+
+    # 2. save_media must have been called for both incoming AND outgoing sticker
+    assert mock_collector.save_media.call_count == 2
+    reply_save_call = mock_collector.save_media.call_args_list[1]
+    assert "reply_sticker_rep_uid_cat2.webp" in reply_save_call[0][2]
+
+    # 3. log_reply must record the saved media_path
+    assert mock_collector.log_reply.called
+    reply_kwargs = mock_collector.log_reply.call_args.kwargs
+    assert reply_kwargs.get("reply_to_type") == "sticker"
+    assert "reply_sticker_rep_uid_cat2.webp" in (reply_kwargs.get("media_path") or "")
+
+    # 4. log_interaction must record the outgoing sticker_reply with media_path
+    assert mock_collector.log_interaction.call_count == 2
+    interaction_calls = mock_collector.log_interaction.call_args_list
+    outgoing_interaction = interaction_calls[1]
+    assert outgoing_interaction.kwargs.get("message_type") == "sticker_reply"
+    assert "reply_sticker_rep_uid_cat2.webp" in (outgoing_interaction.kwargs.get("media_path") or "")
+
