@@ -194,3 +194,7 @@
 {"timestamp": "2026-11-08T10:28:59.031629+00:00", "endpoint": "/chat", "method": "POST", "status_code": 401, "duration_ms": 7.79, "client_ip": "127.0.0.1", "content": "[CONTENT_OMITTED]"}
 {"timestamp": "2026-11-08T10:28:59.062048+00:00", "endpoint": "/chat", "method": "POST", "status_code": 401, "duration_ms": 10.99, "client_ip": "127.0.0.1", "content": "[CONTENT_OMITTED]"}
 {"timestamp": "2026-11-08T10:28:59.201117+00:00", "endpoint": "/chat", "method": "POST", "status_code": 200, "duration_ms": 116.89, "client_ip": "127.0.0.1", "content": "[CONTENT_OMITTED]"}
+{"timestamp": "2026-11-08T11:12:00.909246+00:00", "endpoint": "/health", "method": "GET", "status_code": 200, "duration_ms": 1584.85, "client_ip": "127.0.0.1", "content": "[CONTENT_OMITTED]"}
+{"timestamp": "2026-11-08T11:12:01.143189+00:00", "endpoint": "/chat", "method": "POST", "status_code": 401, "duration_ms": 12.12, "client_ip": "127.0.0.1", "content": "[CONTENT_OMITTED]"}
+{"timestamp": "2026-11-08T11:12:01.215400+00:00", "endpoint": "/chat", "method": "POST", "status_code": 401, "duration_ms": 23.02, "client_ip": "127.0.0.1", "content": "[CONTENT_OMITTED]"}
+{"timestamp": "2026-11-08T11:12:01.443199+00:00", "endpoint": "/chat", "method": "POST", "status_code": 200, "duration_ms": 188.03, "client_ip": "127.0.0.1", "content": "[CONTENT_OMITTED]"}

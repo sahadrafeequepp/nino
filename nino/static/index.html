@@ -2289,9 +2289,25 @@
   </div>
 
   <script>
+    function getInitialHost() {
+      const saved = localStorage.getItem('nino_host');
+      if (saved) return saved;
+
+      const hostname = window.location.hostname || '';
+      const isStaticHost = hostname.endsWith('github.io') ||
+                           hostname.endsWith('pages.dev') ||
+                           hostname.endsWith('netlify.app') ||
+                           hostname.endsWith('vercel.app');
+
+      if (!isStaticHost && window.location.origin && window.location.origin.startsWith('http')) {
+        return window.location.origin;
+      }
+      return 'http://127.0.0.1:8000';
+    }
+
     // Configuration State
     const CONFIG = {
-      host: localStorage.getItem('nino_host') || (window.location.origin.startsWith('http') ? window.location.origin : 'http://127.0.0.1:8000'),
+      host: getInitialHost(),
       token: localStorage.getItem('nino_token') || '',
       sessionId: localStorage.getItem('nino_session_id') || generateUUID(),
       currentMode: 'companion',
@@ -2485,7 +2501,9 @@
 
         if (!res.ok) {
           let errorMsg = 'Authentication failed. Please check your details.';
-          if (typeof data.detail === 'string') {
+          if (res.status === 405) {
+            errorMsg = 'HTTP 405 (Method Not Allowed): GitHub Pages cannot run the Python backend. Run "python run.py --ui" on your computer to open http://127.0.0.1:8000, or enter your live backend address in Settings ⚙️.';
+          } else if (typeof data.detail === 'string') {
             errorMsg = data.detail;
           } else if (Array.isArray(data.detail)) {
             errorMsg = data.detail.map(d => d.msg || JSON.stringify(d)).join(' ');
@@ -3664,17 +3682,31 @@
       statusDot.style.background = '#737373';
 
       try {
-        const res = await fetch(`${CONFIG.host.replace(/\/$/, '')}/health`, { method: 'GET' });
+        const baseHost = (CONFIG.host || '').replace(/\/$/, '');
+        const res = await fetch(`${baseHost}/health`, { method: 'GET' });
         if (res.ok) {
+          const data = await res.json();
           ring.className = 'status-ring';
-          statusText.innerText = `Online · ${data.model || 'Gemma 2'}`;
-          statusDot.style.background = '#ffffff';
+          if (data.ollama_reachable === false) {
+            statusText.innerText = `Online · ${data.model || 'LLM'} (Waiting)`;
+            statusDot.style.background = '#a3a3a3';
+          } else {
+            statusText.innerText = `Online · ${data.model || 'Gemma 2'}`;
+            statusDot.style.background = '#ffffff';
+          }
         } else {
-          throw new Error('Status not ok');
+          if (res.status === 405) {
+            throw new Error('Static host: GitHub Pages has no backend. Set server URL in Settings.');
+          }
+          throw new Error(`HTTP ${res.status}`);
         }
       } catch (e) {
         ring.className = 'status-ring offline';
-        statusText.innerText = 'Offline (Check Server)';
+        if (window.location.hostname.endsWith('github.io') && (!localStorage.getItem('nino_host') || CONFIG.host === window.location.origin)) {
+          statusText.innerText = 'GitHub Pages (Set URL in ⚙️)';
+        } else {
+          statusText.innerText = 'Offline (Check Server)';
+        }
         statusDot.style.background = '#404040';
       }
     }
