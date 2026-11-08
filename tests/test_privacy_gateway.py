@@ -27,7 +27,7 @@ def test_blocks_aws_access_key(gateway):
 
 
 def test_blocks_private_key_header(gateway):
-    secret_text = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0...\n-----END RSA PRIVATE KEY-----"
+    secret_text = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0...\n-----END RSA PRIVATE KEY-----"  # pragma: allowlist secret
     with pytest.raises(BlockedSecretException, match="sensitive credential or secret key"):
         gateway.sanitize(secret_text)
 
