@@ -16,6 +16,7 @@ Features:
 
 import asyncio
 import html
+import inspect
 import io
 import logging
 import os
@@ -2742,6 +2743,7 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # 5. Find the best matching sticker to reply with
     reply_sticker_id: Optional[str] = None
+    matched_sticker_obj: Any = None
 
     # Step A: Attempt to fetch same sticker pack
     if pack_name:
@@ -2756,6 +2758,7 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 )
                 if matched_sticker and getattr(matched_sticker, "file_id", None):
                     reply_sticker_id = matched_sticker.file_id
+                    matched_sticker_obj = matched_sticker
         except Exception as e:
             logger.debug("Could not fetch sticker set '%s': %s", pack_name, e)
 
@@ -2770,6 +2773,7 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 )
                 if matched_sticker and getattr(matched_sticker, "file_id", None):
                     reply_sticker_id = matched_sticker.file_id
+                    matched_sticker_obj = matched_sticker
         except Exception as e:
             logger.debug("Could not fetch default sticker set '%s': %s", TELEGRAM_DEFAULT_STICKER_SET, e)
 
@@ -2780,6 +2784,7 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Step D: Ultimate fallback - mirror back incoming sticker
     if not reply_sticker_id:
         reply_sticker_id = sticker.file_id
+        matched_sticker_obj = sticker
 
     # 6. Update media context in Nino agent memory
     agent.set_media_context(
@@ -2790,8 +2795,9 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     # 7. Reply with the accurate sticker!
+    sent_sticker_msg = None
     try:
-        await message.reply_sticker(sticker=reply_sticker_id)
+        sent_sticker_msg = await message.reply_sticker(sticker=reply_sticker_id)
     except Exception as e:
         logger.error("Failed to send sticker reply: %s", e)
         # Fallback to text if sticker reply failed
@@ -2800,9 +2806,45 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text(fallback_msg, parse_mode=ParseMode.MARKDOWN)
         return
 
-    reply_content = f"Sent sticker: {reply_sticker_id}"
+    # 8. Archive the replied sticker image file into bot_saved_data/media/{user_id}/ so it can be seen in saved data
+    reply_media_path: Optional[str] = None
+    target_sticker = getattr(sent_sticker_msg, "sticker", None) or matched_sticker_obj
+    try:
+        file_to_dl = None
+        if target_sticker:
+            file_to_dl = (
+                target_sticker.thumbnail
+                if (getattr(target_sticker, "is_animated", False) or getattr(target_sticker, "is_video", False))
+                and getattr(target_sticker, "thumbnail", None)
+                else target_sticker
+            )
+        dl_file = None
+        if file_to_dl and hasattr(file_to_dl, "get_file"):
+            res = file_to_dl.get_file()
+            dl_file = await res if inspect.isawaitable(res) else res
+        elif hasattr(context, "bot") and hasattr(context.bot, "get_file"):
+            res = context.bot.get_file(reply_sticker_id)
+            dl_file = await res if inspect.isawaitable(res) else res
 
-    # 8. Optional: If user added a caption/question or if text commentary is configured
+        if dl_file and hasattr(dl_file, "download_as_bytearray"):
+            rep_byte_arr = bytearray()
+            res = dl_file.download_as_bytearray(rep_byte_arr)
+            if inspect.isawaitable(res):
+                await res
+            rep_bytes = bytes(rep_byte_arr)
+            if rep_bytes:
+                rep_uid = getattr(target_sticker, "file_unique_id", None) or (reply_sticker_id[-12:] if reply_sticker_id else "rep")
+                rep_filename = f"reply_sticker_{rep_uid}.webp"
+                reply_media_path = data_collector.save_media(user_id or 0, rep_bytes, rep_filename)
+    except Exception as dl_err:
+        logger.debug("Failed to download/archive replied sticker: %s", dl_err)
+
+    reply_emoji = getattr(target_sticker, "emoji", "") or ""
+    reply_pack = getattr(target_sticker, "set_name", "") or pack_name or ""
+    reply_uid = getattr(target_sticker, "file_unique_id", "") or ""
+    reply_content = f"Sticker: {reply_emoji} (pack: {reply_pack})" if (reply_emoji or reply_pack) else f"Sent sticker: {reply_sticker_id}"
+
+    # 9. Optional: If user added a caption/question or if text commentary is configured
     caption = message.caption
     if caption or TELEGRAM_STICKER_REPLY_TEXT:
         prompt = (
@@ -2827,12 +2869,40 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             logger.debug("Sticker text follow-up error: %s", e)
 
+    # Log to bot_saved_data/reply.jsonl with media_path
     data_collector.log_reply(
         user=user,
         content=reply_content,
         reply_to_type="sticker",
+        media_path=reply_media_path,
         is_owner=owner,
-        metadata={"sticker_id": reply_sticker_id, "input_emoji": emoji, "input_emotion": input_emotion},
+        metadata={
+            "sticker_id": reply_sticker_id,
+            "sticker_unique_id": reply_uid,
+            "emoji": reply_emoji,
+            "set_name": reply_pack,
+            "input_emoji": emoji,
+            "input_emotion": input_emotion,
+        },
+    )
+
+    # Log to bot_saved_data/interactions.jsonl so outgoing sticker replies are visible in saved interactions
+    data_collector.log_interaction(
+        user,
+        message_type="sticker_reply",
+        content=f"Bot replied with sticker: {reply_emoji} (pack: {reply_pack})",
+        media_path=reply_media_path,
+        is_owner=owner,
+        metadata={
+            "direction": "outgoing",
+            "reply_to": "sticker",
+            "sticker_id": reply_sticker_id,
+            "sticker_unique_id": reply_uid,
+            "emoji": reply_emoji,
+            "set_name": reply_pack,
+            "input_emoji": emoji,
+            "input_emotion": input_emotion,
+        },
     )
 
 

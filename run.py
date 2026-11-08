@@ -20,7 +20,7 @@ VENV_PYTHON_UNIX = WORKSPACE_DIR / ".venv" / "bin" / "python"
 
 
 def get_network_ips() -> list[tuple[str, str]]:
-    """Detect local network IPv4 addresses (Wi-Fi/LAN and Tailscale)."""
+    """Detect local network IPv4 addresses (Wi-Fi/LAN)."""
     import socket
     ips = []
     try:
@@ -30,15 +30,6 @@ def get_network_ips() -> list[tuple[str, str]]:
         s.close()
         if lan_ip and not lan_ip.startswith("127."):
             ips.append(("Wi-Fi / Local Network", lan_ip))
-    except Exception:
-        pass
-
-    try:
-        hostname = socket.gethostname()
-        for item in socket.getaddrinfo(hostname, None):
-            addr = item[4][0]
-            if addr.startswith("100.") and not any(ip == addr for _, ip in ips):
-                ips.append(("Tailscale VPN", addr))
     except Exception:
         pass
 
@@ -80,7 +71,7 @@ def is_backend_running(host: str = "127.0.0.1", port: int = 8000) -> bool:
         return False
 
 
-def start_server_process(py_exe: str, host: str = "0.0.0.0", port: int = 8000) -> subprocess.Popen:
+def start_server_process(py_exe: str, host: str = "127.0.0.1", port: int = 8000) -> subprocess.Popen:
     """Start Nino FastAPI backend server in a background process."""
     cmd = [
         py_exe,
@@ -148,7 +139,7 @@ def main():
     parser.add_argument("--ui", "--web", dest="web_ui", action="store_true", help="Launch backend & open Web Chat Interface in browser")
     parser.add_argument("--chat", action="store_true", help="Launch interactive CLI chat")
     parser.add_argument("--voice", action="store_true", help="Launch real-time Push-to-Talk voice client")
-    parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"), help="Server host (default: 0.0.0.0)")
+    parser.add_argument("--host", default=os.getenv("HOST", "127.0.0.1"), help="Server host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="Server port (default: 8000)")
     parser.add_argument("--new", action="store_true", help="Start a new session without resuming previous")
     parser.add_argument("--session", help="Specific session ID to resume")

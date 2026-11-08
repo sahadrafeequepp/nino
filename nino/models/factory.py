@@ -16,6 +16,7 @@ def get_llm_adapter(settings: Settings) -> LLMAdapter:
         return OllamaAdapter(
             base_url=settings.ollama_base_url,
             model_name=settings.model_name,
+            num_ctx=getattr(settings, "ollama_num_ctx", 8192),
         )
     elif adapter_type == "gemini":
         privacy_gateway = PrivacyGateway(

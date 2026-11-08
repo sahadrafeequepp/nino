@@ -1433,9 +1433,11 @@
 
     /* Sidebar Footer: Settings & Account */
     .sidebar-footer {
-      padding: 10px 14px 12px 14px;
+      flex-shrink: 0;
+      margin-top: auto;
+      padding: 10px 14px 14px 14px;
       border-top: 1px solid var(--border-subtle);
-      background: rgba(0, 0, 0, 0.25);
+      background: rgba(10, 14, 23, 0.95);
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -1510,16 +1512,28 @@
       flex-shrink: 0;
     }
 
+    .user-account-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
     .user-account-wrapper.open .sidebar-user-chevron {
       transform: rotate(180deg);
     }
 
-    .sidebar-dropdown {
-      bottom: calc(100% + 8px);
+    .sidebar-dropdown,
+    .user-dropdown-menu.sidebar-dropdown {
+      position: relative;
       top: auto;
-      right: 0;
-      left: 0;
+      bottom: auto;
+      left: auto;
+      right: auto;
       width: 100%;
+      margin-top: 6px;
+      box-sizing: border-box;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--border-subtle);
+      background: #141414;
     }
 
     .history-item {
@@ -1906,6 +1920,54 @@
     .auth-footer-hint a:hover {
       color: #e5e5e5;
     }
+
+    .web-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #171717;
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 8px 16px;
+      font-size: 0.8rem;
+      color: #a3a3a3;
+      z-index: 10;
+    }
+
+    .web-banner-content {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .web-banner strong {
+      color: #ffffff;
+    }
+
+    .web-banner code {
+      background: #262626;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #e5e5e5;
+      font-family: monospace;
+    }
+
+    .web-banner-close {
+      background: none;
+      border: none;
+      color: #737373;
+      cursor: pointer;
+      font-size: 1.2rem;
+      line-height: 1;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .web-banner-close:hover {
+      color: #ffffff;
+      background: #262626;
+    }
   </style>
 </head>
 
@@ -2083,6 +2145,14 @@
         </div>
       </div>
     </header>
+
+    <!-- Web Preview Notification Banner (Visible on static hosting like GitHub Pages) -->
+    <div class="web-banner" id="webPreviewBanner" style="display:none;">
+      <div class="web-banner-content">
+        <span>🌐 <strong>Web Preview Mode:</strong> Connect to your local AI engine & database with <code>python run.py --ui</code> or configure backend in ⚙️ Settings.</span>
+      </div>
+      <button onclick="document.getElementById('webPreviewBanner').style.display='none'" class="web-banner-close" title="Dismiss">&times;</button>
+    </div>
 
     <!-- Chat Log Viewport -->
     <main class="chat-messages" id="chatMessages">
@@ -2289,17 +2359,30 @@
   </div>
 
   <script>
+    function isStaticHost(url) {
+      if (!url) return false;
+      const lower = url.toLowerCase();
+      return lower.includes('github.io') ||
+             lower.includes('pages.dev') ||
+             lower.includes('netlify.app') ||
+             lower.includes('vercel.app');
+    }
+
+    function isStaticHostEnv() {
+      const hostname = window.location.hostname || '';
+      return isStaticHost(hostname);
+    }
+
     function getInitialHost() {
-      const saved = localStorage.getItem('nino_host');
+      let saved = localStorage.getItem('nino_host');
+      // If a static hosting URL was ever saved as the backend, purge it
+      if (saved && isStaticHost(saved)) {
+        localStorage.removeItem('nino_host');
+        saved = null;
+      }
       if (saved) return saved;
 
-      const hostname = window.location.hostname || '';
-      const isStaticHost = hostname.endsWith('github.io') ||
-                           hostname.endsWith('pages.dev') ||
-                           hostname.endsWith('netlify.app') ||
-                           hostname.endsWith('vercel.app');
-
-      if (!isStaticHost && window.location.origin && window.location.origin.startsWith('http')) {
+      if (!isStaticHostEnv() && window.location.origin && window.location.origin.startsWith('http')) {
         return window.location.origin;
       }
       return 'http://127.0.0.1:8000';
@@ -2334,7 +2417,7 @@
         }
         if (dropName) dropName.innerText = user.username;
         if (dropAvatar) dropAvatar.innerText = user.username.charAt(0).toUpperCase();
-        const roleText = user.is_admin ? 'Administrator' : 'Personal Account';
+        const roleText = user.is_admin ? 'Administrator' : (user.mode === 'web' ? 'Web Profile' : 'Personal Account');
         if (roleEl) roleEl.innerText = roleText;
         if (dropRole) dropRole.innerText = roleText;
       } else {
@@ -2351,10 +2434,30 @@
     }
 
     async function checkUserAuth() {
+      // 1. Check local web session if in static/offline environment
+      const savedWebUser = localStorage.getItem('nino_web_user');
+      if (savedWebUser) {
+        try {
+          const parsed = JSON.parse(savedWebUser);
+          if (parsed && parsed.username) {
+            setUserState(parsed);
+            if (isStaticHostEnv() && (!CONFIG.host || isStaticHost(CONFIG.host))) {
+              return true;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. Check backend server if reachable and not a static host
+      const baseHost = (CONFIG.host || '').replace(/\/$/, '');
+      if (!baseHost || isStaticHost(baseHost)) {
+        return !!CONFIG.user;
+      }
+
       try {
         const headers = {};
         if (CONFIG.token) headers['Authorization'] = `Bearer ${CONFIG.token}`;
-        const res = await fetch(`${CONFIG.host.replace(/\/$/, '')}/api/auth/me`, {
+        const res = await fetch(`${baseHost}/api/auth/me`, {
           method: 'GET',
           credentials: 'include',
           headers: headers,
@@ -2369,8 +2472,11 @@
       } catch (e) {
         console.warn('Auth check error:', e);
       }
-      setUserState(null);
-      return false;
+      if (!savedWebUser) {
+        setUserState(null);
+        return false;
+      }
+      return true;
     }
 
     function handleUserAccountBtnClick() {
@@ -2381,6 +2487,11 @@
           const isShowing = menu.style.display !== 'none';
           menu.style.display = isShowing ? 'none' : 'block';
           if (wrapper) wrapper.classList.toggle('open', !isShowing);
+          if (!isShowing) {
+            setTimeout(() => {
+              menu.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 50);
+          }
         }
       } else {
         openAuthModal('login');
@@ -2482,9 +2593,26 @@
         submitText.innerText = currentAuthMode === 'login' ? 'Signing In...' : 'Creating Account...';
       }
 
+      // Check if target backend is a static host (GitHub Pages, etc.) that cannot run backend POST endpoints
+      const targetHost = (CONFIG.host || '').replace(/\/$/, '');
+      const isStaticTarget = isStaticHost(targetHost) || (isStaticHostEnv() && (!targetHost || targetHost === window.location.origin.replace(/\/$/, '')));
+
+      if (isStaticTarget) {
+        // Handle web mode sign-in directly in browser without sending a failing POST to GitHub Pages
+        const webUser = { username: username, is_admin: false, mode: 'web' };
+        localStorage.setItem('nino_web_user', JSON.stringify(webUser));
+        setUserState(webUser);
+        closeAuthModal();
+        startNewChat();
+        await fetchAndRenderHistoryList();
+        submitBtn.disabled = false;
+        if (submitText) submitText.innerText = currentAuthMode === 'login' ? 'Sign In' : 'Create Account';
+        return;
+      }
+
       try {
         const endpoint = currentAuthMode === 'login' ? '/api/auth/login' : '/api/auth/register';
-        const res = await fetch(`${CONFIG.host.replace(/\/$/, '')}${endpoint}`, {
+        const res = await fetch(`${targetHost}${endpoint}`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -2500,10 +2628,21 @@
         }
 
         if (!res.ok) {
-          let errorMsg = 'Authentication failed. Please check your details.';
+          // If the server returned 405 (Method Not Allowed), seamlessly switch to local web profile
           if (res.status === 405) {
-            errorMsg = 'HTTP 405 (Method Not Allowed): GitHub Pages cannot run the Python backend. Run "python run.py --ui" on your computer to open http://127.0.0.1:8000, or enter your live backend address in Settings ⚙️.';
-          } else if (typeof data.detail === 'string') {
+            const webUser = { username: username, is_admin: false, mode: 'web' };
+            localStorage.setItem('nino_web_user', JSON.stringify(webUser));
+            setUserState(webUser);
+            closeAuthModal();
+            startNewChat();
+            await fetchAndRenderHistoryList();
+            submitBtn.disabled = false;
+            if (submitText) submitText.innerText = currentAuthMode === 'login' ? 'Sign In' : 'Create Account';
+            return;
+          }
+
+          let errorMsg = 'Authentication failed. Please check your details.';
+          if (typeof data.detail === 'string') {
             errorMsg = data.detail;
           } else if (Array.isArray(data.detail)) {
             errorMsg = data.detail.map(d => d.msg || JSON.stringify(d)).join(' ');
@@ -2535,6 +2674,17 @@
         startNewChat();
         await fetchAndRenderHistoryList();
       } catch (err) {
+        if (isStaticHostEnv()) {
+          const webUser = { username: username, is_admin: false, mode: 'web' };
+          localStorage.setItem('nino_web_user', JSON.stringify(webUser));
+          setUserState(webUser);
+          closeAuthModal();
+          startNewChat();
+          await fetchAndRenderHistoryList();
+          submitBtn.disabled = false;
+          if (submitText) submitText.innerText = currentAuthMode === 'login' ? 'Sign In' : 'Create Account';
+          return;
+        }
         errorBox.innerText = 'Network error reaching backend server. Please verify the backend is running.';
         errorBox.style.display = 'block';
       } finally {
@@ -2546,16 +2696,20 @@
     async function logoutUser() {
       closeUserDropdown();
       try {
-        await fetch(`${CONFIG.host.replace(/\/$/, '')}/api/auth/logout`, {
-          method: 'POST',
-          credentials: 'include',
-        });
+        const baseHost = (CONFIG.host || '').replace(/\/$/, '');
+        if (baseHost && !isStaticHost(baseHost)) {
+          await fetch(`${baseHost}/api/auth/logout`, {
+            method: 'POST',
+            credentials: 'include',
+          });
+        }
       } catch (e) {
         console.warn('Logout error:', e);
       }
       setUserState(null);
       CONFIG.token = '';
       localStorage.removeItem('nino_token');
+      localStorage.removeItem('nino_web_user');
       Object.keys(localStorage).forEach(key => {
         if (key.startsWith('nino_cached_messages_')) {
           localStorage.removeItem(key);
@@ -2934,6 +3088,11 @@
       const userText = input.value.trim();
       if (!userText && !currentAttachment) return;
 
+      if (currentAttachment && currentAttachment.isExtracting) {
+        alert('Please wait a moment — Nino is still extracting text from your document.');
+        return;
+      }
+
       if (!CONFIG.user && !CONFIG.token) {
         openAuthModal('login');
         return;
@@ -3000,7 +3159,7 @@
           }
         } else if (attachmentToSend.type === 'document') {
           const docText = (attachmentToSend.textContent || '').trim();
-          promptToSend = `[User attached document "${attachmentToSend.name}"]:\n\`\`\`\n${docText.slice(0, 8000)}\n\`\`\`\n${userText || 'Please read and analyze this document.'}`;
+          promptToSend = `[User attached document "${attachmentToSend.name}"]:\n\`\`\`\n${docText.slice(0, 35000)}\n\`\`\`\n${userText || 'Please read and analyze this document.'}`;
         }
       }
 
@@ -3014,6 +3173,28 @@
       const outgoingMessages = conversationHistory.filter(
         m => m && typeof m.content === 'string' && m.content.trim().length > 0
       );
+
+      // Check if target host is a static host with no live backend
+      const targetChatHost = (CONFIG.host || '').replace(/\/$/, '');
+      if (isStaticHost(targetChatHost) || (isStaticHostEnv() && (!targetChatHost || targetChatHost === window.location.origin.replace(/\/$/, '')))) {
+        if (cursor.parentNode) cursor.remove();
+        assistantReplyAccum = `👋 **Hello ${CONFIG.user ? CONFIG.user.username : ''}!** You're viewing Nino through **GitHub Pages (Web Preview)**.\n\n` +
+          `GitHub Pages hosts static web files and cannot run the Python AI engine & memory database in the cloud.\n\n` +
+          `### 🚀 To run Nino with full local AI & persistent memory:\n` +
+          `1. Open a terminal on your computer in the \`nino\` project folder\n` +
+          `2. Run:\n` +
+          `   \`\`\`bash\n` +
+          `   python run.py --ui\n` +
+          `   \`\`\`\n` +
+          `   This starts FastAPI and opens **http://localhost:8000** with your local Ollama models and memory.\n\n` +
+          `*If your backend is already running or accessible via a URL, enter it in **⚙️ Settings** > **Server URL**.*`;
+        bubble.innerHTML = renderMarkdown(assistantReplyAccum);
+        conversationHistory.push({ role: 'assistant', content: assistantReplyAccum });
+        setGeneratingState(false);
+        saveSessionCache(CONFIG.sessionId, conversationHistory);
+        document.getElementById('sessionIndicator').innerText = `Chat: Active (${conversationHistory.length} msgs)`;
+        return;
+      }
 
       try {
         // Attempt Streaming via /chat/stream
@@ -3135,7 +3316,12 @@
             bubbleWrapper.appendChild(confCard);
           }
         } catch (fallbackErr) {
-          assistantReplyAccum = `⚠️ Could not reach Nino: ${fallbackErr.message}. Make sure the backend server is running and your Auth Token is correct in Settings.`;
+          if (isStaticHostEnv() || (fallbackErr.message && fallbackErr.message.includes('405'))) {
+            assistantReplyAccum = `👋 **Hello ${CONFIG.user ? CONFIG.user.username : ''}!** You're viewing Nino through **GitHub Pages (Web Preview)**.\n\n` +
+              `To run Nino with local AI, run \`python run.py --ui\` in your project folder to start the server at **http://localhost:8000**, or configure your backend address in **⚙️ Settings**.`;
+          } else {
+            assistantReplyAccum = `⚠️ Could not reach Nino: ${fallbackErr.message}. Make sure the backend server is running and your Auth Token is correct in Settings.`;
+          }
         }
       }
 
@@ -3269,6 +3455,20 @@
         }
         return;
       }
+
+      if (isStaticHost(CONFIG.host) || (isStaticHostEnv() && (!CONFIG.host || CONFIG.host === window.location.origin.replace(/\/$/, '')))) {
+        if (container) {
+          container.innerHTML = `
+            <div class="drawer-empty-state">
+              <span style="font-size:1.4rem; margin-bottom:8px;">🌐</span>
+              <span style="font-weight:600; color:var(--text-primary); margin-bottom:4px;">Web Preview Mode</span>
+              <span style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px;">Session history is managed when connected to your local backend.</span>
+            </div>
+          `;
+        }
+        return;
+      }
+
       try {
         const histHeaders = {};
         if (CONFIG.token) histHeaders['Authorization'] = `Bearer ${CONFIG.token}`;
@@ -3677,12 +3877,19 @@
       const statusText = document.getElementById('statusText');
       const statusDot = document.getElementById('statusDot');
 
+      const baseHost = (CONFIG.host || '').replace(/\/$/, '');
+      if (isStaticHost(baseHost) || (isStaticHostEnv() && (!baseHost || baseHost === window.location.origin.replace(/\/$/, '')))) {
+        ring.className = 'status-ring';
+        statusText.innerText = 'Web Client (Set URL in ⚙️)';
+        statusDot.style.background = '#a3a3a3';
+        return;
+      }
+
       ring.className = 'status-ring connecting';
       statusText.innerText = 'Connecting...';
       statusDot.style.background = '#737373';
 
       try {
-        const baseHost = (CONFIG.host || '').replace(/\/$/, '');
         const res = await fetch(`${baseHost}/health`, { method: 'GET' });
         if (res.ok) {
           const data = await res.json();
@@ -3695,15 +3902,12 @@
             statusDot.style.background = '#ffffff';
           }
         } else {
-          if (res.status === 405) {
-            throw new Error('Static host: GitHub Pages has no backend. Set server URL in Settings.');
-          }
           throw new Error(`HTTP ${res.status}`);
         }
       } catch (e) {
         ring.className = 'status-ring offline';
-        if (window.location.hostname.endsWith('github.io') && (!localStorage.getItem('nino_host') || CONFIG.host === window.location.origin)) {
-          statusText.innerText = 'GitHub Pages (Set URL in ⚙️)';
+        if (isStaticHostEnv()) {
+          statusText.innerText = 'Web Client · Local Server Offline';
         } else {
           statusText.innerText = 'Offline (Check Server)';
         }
@@ -3764,43 +3968,73 @@
         reader.readAsDataURL(file);
       } else {
         // Document / PDF / Code file
+        const isPdf = file.name.toLowerCase().endsWith('.pdf');
         currentAttachment = {
           file: file,
           name: file.name,
           size: (file.size / 1024).toFixed(1) + ' KB',
           type: 'document',
-          textContent: 'Reading file content...',
+          textContent: '',
+          isExtracting: true,
         };
         renderAttachmentBar();
 
         try {
-          const formData = new FormData();
-          formData.append('file', file);
-          const docHeaders = {};
-          if (CONFIG.token) docHeaders['Authorization'] = `Bearer ${CONFIG.token}`;
-          const res = await fetch(`${CONFIG.host.replace(/\/$/, '')}/api/parse-document`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: docHeaders,
-            body: formData,
-          });
-          if (res.ok) {
-            const docData = await res.json();
-            currentAttachment.textContent = docData.text || '';
+          const baseHost = (CONFIG.host || '').replace(/\/$/, '');
+          let docData = null;
+
+          if (baseHost && !isStaticHost(baseHost)) {
+            const formData = new FormData();
+            formData.append('file', file);
+            const docHeaders = {};
+            if (CONFIG.token) docHeaders['Authorization'] = `Bearer ${CONFIG.token}`;
+            const res = await fetch(`${baseHost}/api/parse-document`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: docHeaders,
+              body: formData,
+            });
+            if (res.ok) {
+              docData = await res.json();
+            } else {
+              const errData = await res.json().catch(() => ({}));
+              console.warn('Backend parse-document error:', res.status, errData);
+            }
+          }
+
+          if (docData && docData.text) {
+            currentAttachment.textContent = docData.text;
             if (docData.pages && docData.pages > 1) {
               currentAttachment.size += ` · ${docData.pages} pages`;
             }
+            if (docData.truncated) {
+              currentAttachment.size += ' (trimmed)';
+            }
+          } else if (!isPdf) {
+            // Text / markdown / code files can be read directly in browser
+            const text = await file.text();
+            currentAttachment.textContent = text;
           } else {
-            const reader = new FileReader();
-            reader.onload = (e) => { currentAttachment.textContent = e.target.result || ''; };
-            reader.readAsText(file);
+            // PDF without reachable Python backend
+            currentAttachment.textContent = `[PDF Document: "${file.name}" (${(file.size / 1024).toFixed(1)} KB). Text extraction requires the local Python server running at http://localhost:8000.]`;
           }
         } catch (err) {
-          const reader = new FileReader();
-          reader.onload = (e) => { currentAttachment.textContent = e.target.result || ''; };
-          reader.readAsText(file);
+          console.warn('Error reading document:', err);
+          if (!isPdf) {
+            try {
+              currentAttachment.textContent = await file.text();
+            } catch (_) {
+              currentAttachment.textContent = `[Could not read file: ${file.name}]`;
+            }
+          } else {
+            currentAttachment.textContent = `[PDF Document: "${file.name}" (${(file.size / 1024).toFixed(1)} KB). Could not reach text extraction service.]`;
+          }
+        } finally {
+          if (currentAttachment) {
+            currentAttachment.isExtracting = false;
+          }
+          renderAttachmentBar();
         }
-        renderAttachmentBar();
       }
     }
 
@@ -3813,12 +4047,13 @@
       }
       bar.style.display = 'flex';
       const isImg = currentAttachment.type === 'image';
+      const isExtracting = !!currentAttachment.isExtracting;
       bar.innerHTML = `
-        <div class="attachment-chip">
+        <div class="attachment-chip ${isExtracting ? 'loading' : ''}">
           ${isImg ? `<img src="${currentAttachment.dataUrl}" alt="preview">` : `<span style="font-size:1.3rem;">📄</span>`}
           <div class="attachment-chip-meta">
             <span class="attachment-chip-name" title="${currentAttachment.name}">${currentAttachment.name}</span>
-            <span class="attachment-chip-size">${currentAttachment.size}</span>
+            <span class="attachment-chip-size">${isExtracting ? '⏳ Extracting document text...' : currentAttachment.size}</span>
           </div>
           <button class="attachment-chip-remove" onclick="removeAttachment()" title="Remove file">&times;</button>
         </div>
@@ -3957,6 +4192,10 @@
     // Periodic Health Check and Startup Initialization
     window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('sessionIndicator').innerText = `Session: ${CONFIG.sessionId.substring(0, 14)}...`;
+      if (isStaticHostEnv()) {
+        const banner = document.getElementById('webPreviewBanner');
+        if (banner) banner.style.display = 'flex';
+      }
       autoDiscoverConfig();
       setInterval(checkHealth, 25000);
     });

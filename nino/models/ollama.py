@@ -10,17 +10,28 @@ from nino.models.base import LLMAdapter
 class OllamaAdapter(LLMAdapter):
     """Adapter for communicating with a local Ollama instance."""
 
-    def __init__(self, base_url: str = "http://127.0.0.1:11434", model_name: str = "gemma2:2b"):
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:11434",
+        model_name: str = "gemma2:2b",
+        num_ctx: int = 8192,
+    ):
         self.base_url = base_url.rstrip("/")
         self.model_name = model_name
+        self.num_ctx = num_ctx
 
     async def chat(self, messages: list[dict[str, str]], **kwargs) -> str:
         """Send chat messages to Ollama and return the full reply."""
         url = f"{self.base_url}/api/chat"
+        options = dict(kwargs.get("options") or {})
+        if "num_ctx" not in options:
+            options["num_ctx"] = kwargs.get("num_ctx", self.num_ctx)
+
         payload = {
             "model": kwargs.get("model", self.model_name),
             "messages": messages,
             "stream": False,
+            "options": options,
         }
         if "tools" in kwargs and kwargs["tools"]:
             payload["tools"] = kwargs["tools"]
@@ -56,10 +67,15 @@ class OllamaAdapter(LLMAdapter):
     ) -> AsyncIterator[str]:
         """Stream chat chunks from Ollama."""
         url = f"{self.base_url}/api/chat"
+        options = dict(kwargs.get("options") or {})
+        if "num_ctx" not in options:
+            options["num_ctx"] = kwargs.get("num_ctx", self.num_ctx)
+
         payload = {
             "model": kwargs.get("model", self.model_name),
             "messages": messages,
             "stream": True,
+            "options": options,
         }
 
         try:
