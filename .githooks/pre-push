@@ -1,20 +1,25 @@
 #!/bin/sh
-# Git Pre-Push Hook: Final guard before pushing commits to remote repository
+# Git Pre-Push Security Guard
 
 if [ -f ".venv/Scripts/python.exe" ]; then
     PYTHON_BIN=".venv/Scripts/python.exe"
 elif [ -f ".venv/bin/python" ]; then
     PYTHON_BIN=".venv/bin/python"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
 elif command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="python3"
+elif command -v py >/dev/null 2>&1; then
+    PYTHON_BIN="py"
 else
-    PYTHON_BIN="python"
+    echo "❌ [Git Guard] Python executable not found to run security scanner!"
+    exit 1
 fi
 
-$PYTHON_BIN scripts/check_secrets.py --pre-push
-STATUS=$?
+"$PYTHON_BIN" scripts/check_secrets.py --pre-push
+EXIT_CODE=$?
 
-if [ $STATUS -ne 0 ]; then
+if [ $EXIT_CODE -ne 0 ]; then
     echo ""
     echo "❌ [Git Guard] Push ABORTED: Sensitive credentials or files detected!"
     echo ""
