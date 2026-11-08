@@ -1433,9 +1433,11 @@
 
     /* Sidebar Footer: Settings & Account */
     .sidebar-footer {
-      padding: 10px 14px 12px 14px;
+      flex-shrink: 0;
+      margin-top: auto;
+      padding: 10px 14px 14px 14px;
       border-top: 1px solid var(--border-subtle);
-      background: rgba(0, 0, 0, 0.25);
+      background: rgba(10, 14, 23, 0.95);
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -1510,16 +1512,28 @@
       flex-shrink: 0;
     }
 
+    .user-account-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
     .user-account-wrapper.open .sidebar-user-chevron {
       transform: rotate(180deg);
     }
 
-    .sidebar-dropdown {
-      bottom: calc(100% + 8px);
+    .sidebar-dropdown,
+    .user-dropdown-menu.sidebar-dropdown {
+      position: relative;
       top: auto;
-      right: 0;
-      left: 0;
+      bottom: auto;
+      left: auto;
+      right: auto;
       width: 100%;
+      margin-top: 6px;
+      box-sizing: border-box;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--border-subtle);
+      background: #141414;
     }
 
     .history-item {
@@ -2473,6 +2487,11 @@
           const isShowing = menu.style.display !== 'none';
           menu.style.display = isShowing ? 'none' : 'block';
           if (wrapper) wrapper.classList.toggle('open', !isShowing);
+          if (!isShowing) {
+            setTimeout(() => {
+              menu.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 50);
+          }
         }
       } else {
         openAuthModal('login');
@@ -3069,6 +3088,11 @@
       const userText = input.value.trim();
       if (!userText && !currentAttachment) return;
 
+      if (currentAttachment && currentAttachment.isExtracting) {
+        alert('Please wait a moment — Nino is still extracting text from your document.');
+        return;
+      }
+
       if (!CONFIG.user && !CONFIG.token) {
         openAuthModal('login');
         return;
@@ -3135,7 +3159,7 @@
           }
         } else if (attachmentToSend.type === 'document') {
           const docText = (attachmentToSend.textContent || '').trim();
-          promptToSend = `[User attached document "${attachmentToSend.name}"]:\n\`\`\`\n${docText.slice(0, 8000)}\n\`\`\`\n${userText || 'Please read and analyze this document.'}`;
+          promptToSend = `[User attached document "${attachmentToSend.name}"]:\n\`\`\`\n${docText.slice(0, 35000)}\n\`\`\`\n${userText || 'Please read and analyze this document.'}`;
         }
       }
 
@@ -3944,43 +3968,73 @@
         reader.readAsDataURL(file);
       } else {
         // Document / PDF / Code file
+        const isPdf = file.name.toLowerCase().endsWith('.pdf');
         currentAttachment = {
           file: file,
           name: file.name,
           size: (file.size / 1024).toFixed(1) + ' KB',
           type: 'document',
-          textContent: 'Reading file content...',
+          textContent: '',
+          isExtracting: true,
         };
         renderAttachmentBar();
 
         try {
-          const formData = new FormData();
-          formData.append('file', file);
-          const docHeaders = {};
-          if (CONFIG.token) docHeaders['Authorization'] = `Bearer ${CONFIG.token}`;
-          const res = await fetch(`${CONFIG.host.replace(/\/$/, '')}/api/parse-document`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: docHeaders,
-            body: formData,
-          });
-          if (res.ok) {
-            const docData = await res.json();
-            currentAttachment.textContent = docData.text || '';
+          const baseHost = (CONFIG.host || '').replace(/\/$/, '');
+          let docData = null;
+
+          if (baseHost && !isStaticHost(baseHost)) {
+            const formData = new FormData();
+            formData.append('file', file);
+            const docHeaders = {};
+            if (CONFIG.token) docHeaders['Authorization'] = `Bearer ${CONFIG.token}`;
+            const res = await fetch(`${baseHost}/api/parse-document`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: docHeaders,
+              body: formData,
+            });
+            if (res.ok) {
+              docData = await res.json();
+            } else {
+              const errData = await res.json().catch(() => ({}));
+              console.warn('Backend parse-document error:', res.status, errData);
+            }
+          }
+
+          if (docData && docData.text) {
+            currentAttachment.textContent = docData.text;
             if (docData.pages && docData.pages > 1) {
               currentAttachment.size += ` · ${docData.pages} pages`;
             }
+            if (docData.truncated) {
+              currentAttachment.size += ' (trimmed)';
+            }
+          } else if (!isPdf) {
+            // Text / markdown / code files can be read directly in browser
+            const text = await file.text();
+            currentAttachment.textContent = text;
           } else {
-            const reader = new FileReader();
-            reader.onload = (e) => { currentAttachment.textContent = e.target.result || ''; };
-            reader.readAsText(file);
+            // PDF without reachable Python backend
+            currentAttachment.textContent = `[PDF Document: "${file.name}" (${(file.size / 1024).toFixed(1)} KB). Text extraction requires the local Python server running at http://localhost:8000.]`;
           }
         } catch (err) {
-          const reader = new FileReader();
-          reader.onload = (e) => { currentAttachment.textContent = e.target.result || ''; };
-          reader.readAsText(file);
+          console.warn('Error reading document:', err);
+          if (!isPdf) {
+            try {
+              currentAttachment.textContent = await file.text();
+            } catch (_) {
+              currentAttachment.textContent = `[Could not read file: ${file.name}]`;
+            }
+          } else {
+            currentAttachment.textContent = `[PDF Document: "${file.name}" (${(file.size / 1024).toFixed(1)} KB). Could not reach text extraction service.]`;
+          }
+        } finally {
+          if (currentAttachment) {
+            currentAttachment.isExtracting = false;
+          }
+          renderAttachmentBar();
         }
-        renderAttachmentBar();
       }
     }
 
@@ -3993,12 +4047,13 @@
       }
       bar.style.display = 'flex';
       const isImg = currentAttachment.type === 'image';
+      const isExtracting = !!currentAttachment.isExtracting;
       bar.innerHTML = `
-        <div class="attachment-chip">
+        <div class="attachment-chip ${isExtracting ? 'loading' : ''}">
           ${isImg ? `<img src="${currentAttachment.dataUrl}" alt="preview">` : `<span style="font-size:1.3rem;">📄</span>`}
           <div class="attachment-chip-meta">
             <span class="attachment-chip-name" title="${currentAttachment.name}">${currentAttachment.name}</span>
-            <span class="attachment-chip-size">${currentAttachment.size}</span>
+            <span class="attachment-chip-size">${isExtracting ? '⏳ Extracting document text...' : currentAttachment.size}</span>
           </div>
           <button class="attachment-chip-remove" onclick="removeAttachment()" title="Remove file">&times;</button>
         </div>

@@ -478,13 +478,25 @@ async def parse_document(file: UploadFile = File(...)):
         try:
             import pypdf
             reader = pypdf.PdfReader(io.BytesIO(content))
+            if reader.is_encrypted:
+                try:
+                    reader.decrypt("")
+                except Exception:
+                    raise HTTPException(status_code=400, detail="PDF is password-protected or encrypted.")
             pages = len(reader.pages)
             text_parts = []
             for i, page in enumerate(reader.pages):
                 page_text = page.extract_text() or ""
                 if page_text.strip():
-                    text_parts.append(f"--- Page {i + 1} ---\n{page_text}")
+                    text_parts.append(f"--- Page {i + 1} ---\n{page_text.strip()}")
             extracted_text = "\n\n".join(text_parts)
+            if not extracted_text.strip():
+                extracted_text = (
+                    f"[Note: '{filename}' contains {pages} page(s), but no extractable text was found. "
+                    "The PDF may be scanned images. Consider OCR or attaching key pages as images.]"
+                )
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {e}")
     else:
@@ -499,8 +511,12 @@ async def parse_document(file: UploadFile = File(...)):
 
     # Enforce safe upper length limit so prompt token budget isn't blown
     truncated = False
-    if len(extracted_text) > 15000:
-        extracted_text = extracted_text[:15000] + "\n\n... [Content truncated to fit context budget] ..."
+    max_doc_chars = 45000
+    if len(extracted_text) > max_doc_chars:
+        extracted_text = (
+            extracted_text[:max_doc_chars]
+            + f"\n\n... [Content truncated at {max_doc_chars} chars to fit LLM memory budget. Total document pages: {pages}] ..."
+        )
         truncated = True
 
     return {
