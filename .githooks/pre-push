@@ -1,5 +1,6 @@
 #!/bin/sh
 # Git Pre-Push Security Guard
+export PYTHONIOENCODING=utf-8
 
 if [ -f ".venv/Scripts/python.exe" ]; then
     PYTHON_BIN=".venv/Scripts/python.exe"
@@ -7,12 +8,12 @@ elif [ -f ".venv/bin/python" ]; then
     PYTHON_BIN=".venv/bin/python"
 elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
-elif command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="python3"
 elif command -v py >/dev/null 2>&1; then
     PYTHON_BIN="py"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
 else
-    echo "❌ [Git Guard] Python executable not found to run security scanner!"
+    echo "[Git Guard] Python executable not found to run security scanner!"
     exit 1
 fi
 
@@ -21,7 +22,7 @@ EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then
     echo ""
-    echo "❌ [Git Guard] Push ABORTED: Sensitive credentials or files detected!"
+    echo "[Git Guard] Push ABORTED: Sensitive credentials or files detected!"
     echo ""
     exit 1
 fi

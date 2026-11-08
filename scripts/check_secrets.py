@@ -22,6 +22,14 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
+# Ensure stdout and stderr handle UTF-8 cleanly on Windows without cp1252 charmap crashes
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Files / Paths strictly forbidden from being staged or tracked
 FORBIDDEN_FILE_PATTERNS = [
     # Environment credentials
@@ -228,10 +236,10 @@ def main() -> int:
         scan_label = "tracked repository files"
 
     if not files:
-        print(f"🛡️  [Security Guard] No {scan_label} to scan. Clean!")
+        print(f"[Security Guard] No {scan_label} to scan. Clean!")
         return 0
 
-    print(f"🛡️  [Security Guard] Scanning {len(files)} {scan_label} for secrets, databases, and logs...")
+    print(f"[Security Guard] Scanning {len(files)} {scan_label} for secrets, databases, and logs...")
 
     total_violations = 0
     for file_path in files:
@@ -240,13 +248,13 @@ def main() -> int:
             for v_type, v_msg, v_line in file_violations:
                 total_violations += 1
                 if v_line > 0:
-                    print(f"  ❌ [{v_type}] {file_path}:{v_line} - {v_msg}")
+                    print(f"  [BLOCKED] [{v_type}] {file_path}:{v_line} - {v_msg}")
                 else:
-                    print(f"  ❌ [{v_type}] {file_path} - {v_msg}")
+                    print(f"  [BLOCKED] [{v_type}] {file_path} - {v_msg}")
 
     if total_violations > 0:
         print("\n" + "=" * 70)
-        print("🚨 COMMIT / PUSH BLOCKED: SENSITIVE DATA DETECTED!")
+        print(">>> COMMIT / PUSH BLOCKED: SENSITIVE DATA DETECTED! <<<")
         print("=" * 70)
         print("The files listed above contain sensitive secrets, private databases, or logs.")
         print("To resolve this:")
@@ -257,7 +265,7 @@ def main() -> int:
         print("=" * 70)
         return 1
 
-    print("✅ [Security Guard] All files verified clean. Safe to commit and push.")
+    print("[Security Guard] All files verified clean. Safe to commit and push.")
     return 0
 
 

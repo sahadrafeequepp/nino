@@ -60,3 +60,4 @@ else
     echo ""
     echo "ℹ️  Committed locally. (No remote configured yet. Add remote with: git remote add origin <url>)"
 fi
+
