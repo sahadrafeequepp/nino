@@ -3175,8 +3175,14 @@
       );
 
       // Check if target host is a static host with no live backend
+      // Only block if the configured host IS itself a static/CDN host (e.g. github.io)
+      // If the user has set a real backend URL (e.g. http://127.0.0.1:8000), always allow
       const targetChatHost = (CONFIG.host || '').replace(/\/$/, '');
-      if (isStaticHost(targetChatHost) || (isStaticHostEnv() && (!targetChatHost || targetChatHost === window.location.origin.replace(/\/$/, '')))) {
+      const hostIsStaticCDN = !targetChatHost ||
+        isStaticHost(targetChatHost) ||
+        targetChatHost === (window.location.origin || '').replace(/\/$/, '');
+
+      if (hostIsStaticCDN) {
         if (cursor.parentNode) cursor.remove();
         assistantReplyAccum = `👋 **Hello ${CONFIG.user ? CONFIG.user.username : ''}!** You're viewing Nino through **GitHub Pages (Web Preview)**.\n\n` +
           `GitHub Pages hosts static web files and cannot run the Python AI engine & memory database in the cloud.\n\n` +
@@ -3456,7 +3462,12 @@
         return;
       }
 
-      if (isStaticHost(CONFIG.host) || (isStaticHostEnv() && (!CONFIG.host || CONFIG.host === window.location.origin.replace(/\/$/, '')))) {
+      const histHost = (CONFIG.host || '').replace(/\/$/, '');
+      const histHostIsNoBE = !histHost ||
+        isStaticHost(histHost) ||
+        histHost === (window.location.origin || '').replace(/\/$/, '');
+
+      if (histHostIsNoBE) {
         if (container) {
           container.innerHTML = `
             <div class="drawer-empty-state">
@@ -3878,7 +3889,11 @@
       const statusDot = document.getElementById('statusDot');
 
       const baseHost = (CONFIG.host || '').replace(/\/$/, '');
-      if (isStaticHost(baseHost) || (isStaticHostEnv() && (!baseHost || baseHost === window.location.origin.replace(/\/$/, '')))) {
+      const hostIsNoBE = !baseHost ||
+        isStaticHost(baseHost) ||
+        baseHost === (window.location.origin || '').replace(/\/$/, '');
+
+      if (hostIsNoBE) {
         ring.className = 'status-ring';
         statusText.innerText = 'Web Client (Set URL in ⚙️)';
         statusDot.style.background = '#a3a3a3';
@@ -3901,6 +3916,9 @@
             statusText.innerText = `Online · ${data.model || 'Gemma 2'}`;
             statusDot.style.background = '#ffffff';
           }
+          // Backend is reachable — hide the "Web Preview" banner
+          const banner = document.getElementById('webPreviewBanner');
+          if (banner) banner.style.display = 'none';
         } else {
           throw new Error(`HTTP ${res.status}`);
         }
@@ -4193,8 +4211,13 @@
     window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('sessionIndicator').innerText = `Session: ${CONFIG.sessionId.substring(0, 14)}...`;
       if (isStaticHostEnv()) {
-        const banner = document.getElementById('webPreviewBanner');
-        if (banner) banner.style.display = 'flex';
+        // Only show the banner if no custom backend has been configured yet
+        const savedHost = localStorage.getItem('nino_host');
+        const hasCustomBackend = savedHost && !isStaticHost(savedHost) && savedHost !== window.location.origin.replace(/\/$/, '');
+        if (!hasCustomBackend) {
+          const banner = document.getElementById('webPreviewBanner');
+          if (banner) banner.style.display = 'flex';
+        }
       }
       autoDiscoverConfig();
       setInterval(checkHealth, 25000);
