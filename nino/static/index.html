@@ -1433,9 +1433,11 @@
 
     /* Sidebar Footer: Settings & Account */
     .sidebar-footer {
-      padding: 10px 14px 12px 14px;
+      flex-shrink: 0;
+      margin-top: auto;
+      padding: 10px 14px 14px 14px;
       border-top: 1px solid var(--border-subtle);
-      background: rgba(0, 0, 0, 0.25);
+      background: rgba(10, 14, 23, 0.95);
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -1510,16 +1512,28 @@
       flex-shrink: 0;
     }
 
+    .user-account-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
     .user-account-wrapper.open .sidebar-user-chevron {
       transform: rotate(180deg);
     }
 
-    .sidebar-dropdown {
-      bottom: calc(100% + 8px);
+    .sidebar-dropdown,
+    .user-dropdown-menu.sidebar-dropdown {
+      position: relative;
       top: auto;
-      right: 0;
-      left: 0;
+      bottom: auto;
+      left: auto;
+      right: auto;
       width: 100%;
+      margin-top: 6px;
+      box-sizing: border-box;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--border-subtle);
+      background: #141414;
     }
 
     .history-item {
@@ -2473,6 +2487,11 @@
           const isShowing = menu.style.display !== 'none';
           menu.style.display = isShowing ? 'none' : 'block';
           if (wrapper) wrapper.classList.toggle('open', !isShowing);
+          if (!isShowing) {
+            setTimeout(() => {
+              menu.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 50);
+          }
         }
       } else {
         openAuthModal('login');
