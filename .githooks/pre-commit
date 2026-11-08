@@ -1,0 +1,25 @@
+#!/bin/sh
+# Git Pre-Commit Hook: Guard against committing secrets, .env files, databases, and logs
+
+if [ -f ".venv/Scripts/python.exe" ]; then
+    PYTHON_BIN=".venv/Scripts/python.exe"
+elif [ -f ".venv/bin/python" ]; then
+    PYTHON_BIN=".venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+else
+    PYTHON_BIN="python"
+fi
+
+$PYTHON_BIN scripts/check_secrets.py --staged
+STATUS=$?
+
+if [ $STATUS -ne 0 ]; then
+    echo ""
+    echo "❌ [Git Guard] Commit ABORTED because sensitive information or forbidden files were detected."
+    echo "   Please review the errors above and unstage using: git reset HEAD <file>"
+    echo ""
+    exit 1
+fi
+
+exit 0
